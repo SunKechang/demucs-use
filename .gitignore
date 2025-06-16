@@ -1,0 +1,18 @@
+# IDE 配置
+/.idea/
+
+# 本地存储目录
+/storage/
+
+# Python 开发环境
+__pycache__/
+*.py[cod]
+*.env
+venv/
+
+# 编辑器临时文件
+*.swp
+*.swo
+*.vs
+*.vscode/
+.DS_Store
