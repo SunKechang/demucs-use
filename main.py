@@ -3,6 +3,15 @@ from flask import Flask, request, jsonify
 from demucs import separate
 from threading import Thread
 import time, json
+import requests
+from config import (
+    R2_ENDPOINT, 
+    R2_ACCESS_KEY_ID, 
+    R2_SECRET_ACCESS_KEY, 
+    R2_BUCKET_NAME,
+    LOCAL_STORAGE_PATH
+)
+import boto3
 
 app = Flask(__name__)
 
@@ -43,88 +52,115 @@ def update_task_status(task_id: int, from_status: str, to_status: str, conn) -> 
         if cursor:
             cursor.close()
 
-def process_single_task(task, conn):
-    cursor = None
+def process_single_task(task):
     try:
-        # 原子化更新任务状态
-        updated = update_task_status(task['id'], 'waiting', 'processing', conn)
-        if updated == 0:
-            print(f"任务{task['id']}已被其他worker处理")
-            return
-
-        cursor = conn.cursor(dictionary=True)
-        output_path_prefix = "separated"
-        input_path = os.path.join(str(""), task['file_path'])
-        output_dir = os.path.join(os.path.dirname(input_path), output_path_prefix)
-        
-        # 使用正确的输入路径
-        filepath = os.path.join(input_path, task['file_name'])
-        separate_audio(filepath, output_dir)
-        
-        result_path = {
-            "drum": f"/{output_path_prefix}/htdemucs/drum.wav",
-            "vocals": f"/{output_path_prefix}/htdemucs/vocals.wav",
-            "bass": f"/{output_path_prefix}/htdemucs/bass.wav",
-            "other": f"/{output_path_prefix}/htdemucs/other.wav"
-        }
-        
-        # 更新任务状态
-        cursor.execute(
-            "UPDATE tasks SET status = 'ended', result_path = %s WHERE id = %s",
-            (json.dumps(result_path), task['id'])
+        # 初始化R2客户端
+        s3 = boto3.client(
+            service_name="s3",
+            endpoint_url=R2_ENDPOINT,
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            region_name="auto"
         )
-        conn.commit()
+        # 构建存储路径（新增文件名处理）
+        original_filename = task['file_name']
+        filename_without_ext = os.path.splitext(original_filename)[0]
+        task_storage_dir = os.path.join(LOCAL_STORAGE_PATH, filename_without_ext)
+        os.makedirs(task_storage_dir, exist_ok=True)
         
+        # 完整本地路径
+        local_path = os.path.join(task_storage_dir, original_filename)
+        
+        # 下载文件（保持原有逻辑）
+        s3.download_file(R2_BUCKET_NAME, original_filename, local_path)
+        print(f"文件下载完成：{local_path}")
+
+        # 创建分离结果目录（新增输出路径）
+        output_dir = os.path.join(task_storage_dir, "separated")
+        
+        # 执行音频分离（修改输入路径）
+        separate_audio(local_path, output_dir)
+        print(f"分离结果存储于：{output_dir}")
+        
+        # 分离结果路径
+        separated_dir = os.path.join(output_dir, "htdemucs", filename_without_ext)
+        
+        # 上传分离结果到R2并构建结果映射
+        result_mapping = {}
+        for track in ['bass', 'drums', 'other', 'vocals']:
+            local_file = os.path.join(separated_dir, f"{track}.wav")
+            r2_filename = f"{filename_without_ext}-{track}.wav"
+            # 上传到R2
+            s3.upload_file(
+                Filename=local_file,
+                Bucket=R2_BUCKET_NAME,
+                Key=r2_filename
+            )
+            result_mapping[track] = r2_filename
+        print(result_mapping)
+        update_sql = "UPDATE tasks SET status = 'completed', result = ?WHERE id = ?"
+        update_params = [json.dumps(result_mapping), task['id']]
+        update_result = execute_d1_query(update_sql, update_params)
+        if not update_result.get('success'):
+            print("状态更新失败:", update_result.get('errors'))
+
     except Exception as e:
-        print(f"任务处理失败: {e}")
-        if cursor:
-            cursor.execute("UPDATE tasks SET status = 'failed' WHERE id = %s", (task['id'],))
-    finally:
-        if cursor:
-            cursor.close()
+        print(f"文件处理失败: {e}")
+        # 使用execute_d1_query标记失败状态
+        execute_d1_query(
+            "UPDATE tasks SET status = 'failed' WHERE id = ?",
+            [task['id']]
+        )
+
+
+from config import (
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_DATABASE_ID,
+    CLOUDFLARE_API_TOKEN
+)    
+def execute_d1_query(sql: str, params: list) -> dict:
+        """执行D1数据库查询/更新（新增函数）"""
+        try:
+            response = requests.post(
+                f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/d1/database/{CLOUDFLARE_DATABASE_ID}/query",
+                headers={
+                    "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sql": sql,
+                    "params": params
+                }
+            )
+            response.raise_for_status()
+            return response.json()['result'][0]
+        except Exception as e:
+            print(f"D1请求异常: {e}")
+            return {'success': False, 'errors': [str(e)]}
 
 def task_worker():
     """D1数据库任务处理工作线程"""
-    import requests
-    from config import (  # 新增导入
-        CLOUDFLARE_ACCOUNT_ID,
-        CLOUDFLARE_DATABASE_ID,
-        CLOUDFLARE_API_TOKEN
-    )
     
     while True:
         try:
-            # 从config获取配置
-            account_id = CLOUDFLARE_ACCOUNT_ID
-            database_id = CLOUDFLARE_DATABASE_ID
-            api_token = CLOUDFLARE_API_TOKEN
-            
-            # 构建D1 API请求
-            url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}/query"
-            headers = {
-                "Authorization": f"Bearer {api_token}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "sql": "SELECT * FROM tasks WHERE status = ? AND is_deleted = ?;",
-                "params": ["waiting", "0"]
-            }
-            print(url)
-            # 发送请求
-            response = requests.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            
-            # 解析响应
-            result = response.json().get('result', [{}])[0]
-            print(result)
-            if result.get('success'):
-                tasks = result.get('results', [])
-                # if tasks:
-                #     print(f"发现{len(tasks)}个等待处理的任务")
-                #     for task in tasks:
-                #         process_single_task(task, None)  # 需要调整process_single_task参数
-            else:
-                print("D1查询失败:", result.get('errors'))
+            # 使用新函数执行查询
+            query_result = execute_d1_query(
+                "SELECT * FROM tasks WHERE status = ? AND is_deleted = ?;",
+                ["waiting", "0"]
+            )
+            if query_result.get('success'):
+                tasks = query_result.get('results', [])
+                for task in tasks:
+                    # 使用新函数执行状态更新
+                    update_result = execute_d1_query(
+                        "UPDATE tasks SET status = ? WHERE id = ? AND status = ?;",
+                        ["processing", task['id'], "waiting"]
+                    )
+                    if update_result.get('meta', {}).get('rows_written', 0) > 0:
+                        print(f"开始处理任务 {task['id']}")
+                        process_single_task(task)
+                    else:
+                        print(f"跳过已被处理的任务 {task['id']}")
                 
         except Exception as err:
             print(f"API请求异常: {err}")
