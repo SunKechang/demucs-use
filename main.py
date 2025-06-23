@@ -167,7 +167,36 @@ def task_worker():
         finally:
             time.sleep(3)
 
-# 在应用启动时启动工作线程（添加到文件底部）
+@app.route('/process_task/<int:task_id>', methods=['POST'])
+def handle_manual_process(task_id):
+    """手动触发任务处理接口（新增）"""
+    try:
+        # 原子化状态更新
+        update_result = execute_d1_query(
+            "UPDATE tasks SET status = ? WHERE id = ? AND status = ?",
+            ["processing", task_id, "waiting"]
+        )
+        
+        if update_result.get('meta', {}).get('rows_written', 0) > 0:
+            # 获取完整任务信息
+            query_result = execute_d1_query(
+                "SELECT * FROM tasks WHERE id = ? AND is_deleted = ?",
+                [task_id, "0"]
+            )
+            
+            if query_result.get('success') and query_result.get('results'):
+                task = query_result['results'][0]
+                # 启动异步处理
+                Thread(target=process_single_task, args=(task,)).start()
+                return jsonify({"status": "processing_started", "task_id": task_id})
+            
+        return jsonify({"error": "task_not_available"}), 400
+        
+    except Exception as e:
+        print(f"手动处理异常: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 在应用启动时启动工作线程
 if __name__ == '__main__':
-    Thread(target=task_worker, daemon=True).start()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Thread(target=task_worker, daemon=True).start()
+    app.run(host='0.0.0.0', port=9000, debug=True)
