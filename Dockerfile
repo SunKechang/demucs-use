@@ -1,5 +1,5 @@
 # 使用单个Debian构建阶段
-FROM FROM alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/python:3.11.1
+FROM alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/python:3.11.1
 
 WORKDIR /app
 COPY requirements.txt .
