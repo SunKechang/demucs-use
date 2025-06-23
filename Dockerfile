@@ -1,4 +1,3 @@
-# 使用单个Debian构建阶段
 FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.10-slim
 
 WORKDIR /app
