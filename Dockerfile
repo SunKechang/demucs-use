@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装Python依赖
-RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    && pip install demucs -i https://pypi.tuna.tsinghua.edu.cn/simple \
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install demucs \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
 COPY . .
