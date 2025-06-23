@@ -1,4 +1,4 @@
-FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.10-slim
+FROM docker.xuanyuan.me/python:3.10-slim
 
 WORKDIR /app
 COPY requirements.txt .
