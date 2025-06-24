@@ -24,7 +24,14 @@ def separate_audio(input_path, output_dir):
         output_dir (str): 输出目录
     """
     os.makedirs(output_dir, exist_ok=True)
-    separate.main([input_path, '-o', output_dir])
+    # 添加绝对路径处理
+    abs_input = os.path.abspath(input_path)
+    print(f"分离绝对路径：{abs_input}")
+    separate.main([
+        abs_input,  # 使用绝对路径
+        '-o', output_dir,
+        '-n', 'htdemucs'  # 明确指定模型
+    ])
     print(f"音频分离完成，结果保存在 {output_dir}")
 
 def handle_separation():

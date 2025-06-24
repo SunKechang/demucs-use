@@ -7,12 +7,15 @@ COPY requirements.txt .
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
+    ffmpeg \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install demucs \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    && pip install librosa
 
 COPY . .
 
