@@ -193,8 +193,7 @@ def handle_manual_process(task_id):
             
             if query_result.get('success') and query_result.get('results'):
                 task = query_result['results'][0]
-                # 启动异步处理
-                Thread(target=process_single_task, args=(task,)).start()
+                process_single_task(task)
                 return jsonify({"status": "processing_started", "task_id": task_id})
             
         return jsonify({"error": "task_not_available"}), 400
