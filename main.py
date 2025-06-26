@@ -30,7 +30,8 @@ def separate_audio(input_path, output_dir):
     separate.main([
         abs_input,  # 使用绝对路径
         '-o', output_dir,
-        '-n', 'htdemucs'  # 明确指定模型
+        '-n', 'htdemucs',
+        '-d', 'cuda'  # 新增GPU支持参数
     ])
     print(f"音频分离完成，结果保存在 {output_dir}")
 
@@ -206,3 +207,8 @@ def handle_manual_process(task_id):
 if __name__ == '__main__':
     # Thread(target=task_worker, daemon=True).start()
     app.run(host='0.0.0.0', port=9000, debug=True)
+
+# 在文件开头添加验证代码
+import torch
+print(f"CUDA 可用状态: {torch.cuda.is_available()}")
+print(f"当前设备: {torch.cuda.get_device_name(0)}")
