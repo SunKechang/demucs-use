@@ -3,6 +3,5 @@ demucs==4.0.1
 Flask==3.1.1
 python-dotenv==1.1.0
 requests==2.32.4
-# CUDA 11.6 专用版本
-torch==1.12.1+cu116
-torchaudio==0.12.1+cu116
+torch==2.4.0
+torchaudio==2.2.0
